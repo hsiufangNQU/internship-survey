@@ -57,7 +57,7 @@ section.part{background:var(--surface);border:1px solid var(--line);border-radiu
 .q>legend,.q>label.ql{font-weight:500;padding:0;margin-bottom:6px}
 .req{color:var(--danger);margin-left:2px}
 .hint{font-size:13px;color:var(--muted);font-weight:400}
-input[type=text],textarea,select{font:inherit;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+input[type=text],input[type=date],textarea,select{font:inherit;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
 textarea{min-height:110px;resize:vertical}
 input:focus-visible,textarea:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
@@ -146,10 +146,12 @@ const lk=(id,label)=>({id,type:"likert",label,req:true});
 
 const SECTIONS=[
  {no:"基本",title:"基本資料",desc:"方便彙整時分類，僅供承辦老師使用。",items:[
-   {id:"dept",type:"text",label:"系級／班級",req:true,ph:"例：護理系四年級"},
-   {id:"org",type:"text",label:"實習醫院／機構",req:true,ph:""},
-   {id:"unit",type:"text",label:"實習單位",req:true,ph:"例：7A 骨科病房"},
    {id:"course",type:"radio",label:"實習科目",req:true,opts:["內外科護理學實習I","內外科護理學實習II"]},
+   {id:"dateStart",type:"date",group:"dates",label:"實習起訖時間：開始日期",req:true},
+   {id:"dateEnd",type:"date",group:"dates",label:"實習起訖時間：結束日期",req:true},
+   {id:"org",type:"text",label:"實習醫院",req:true,ph:""},
+   {id:"unit",type:"text",label:"實習單位",req:true,ph:"例：7A 骨科病房"},
+   {id:"teacher",type:"text",label:"實習指導教師姓名",req:true,ph:""},
  ]},
  {no:"A",title:"科目目標達成程度",desc:"學生自我評價：你在「外科護理學實習」科目目標的達成程度。分數越高表示達成程度越高。",items:[
    sc("a1","運用基礎生物醫學科學與內外科相關護理學知識，正確且安全地執行護理照護技能。",S_PCT),
@@ -292,11 +294,13 @@ function renderForm(){
     for(const it of s.items){
       let node;
       if(it.type==="sub"){sec.append(el("div",{class:"subhead",text:it.label}));continue}
-      if(it.type==="text"){
+      if(it.type==="text"||it.type==="date"){
         node=el("div",{class:"q",id:"q-"+it.id});
         const lab=el("label",{class:"ql",for:"f-"+it.id});lab.append(labelNodes(it));
-        node.append(lab,el("input",{type:"text",id:"f-"+it.id,name:it.id,placeholder:it.ph||"",maxlength:"120"}));
-        if(s.no==="基本"){if(!grid){grid=el("div",{class:"grid2"});sec.append(grid)}grid.append(node);continue}
+        node.append(lab,it.type==="date"
+          ?el("input",{type:"date",id:"f-"+it.id,name:it.id,min:"2020-01-01",max:"2099-12-31"})
+          :el("input",{type:"text",id:"f-"+it.id,name:it.id,placeholder:it.ph||"",maxlength:"120"}));
+        if(s.no==="基本"){const g=it.group||"";if(!grid||grid.dataset.g!==g){grid=el("div",{class:"grid2"});grid.dataset.g=g;sec.append(grid)}grid.append(node);continue}
       }else if(it.type==="area"){
         node=el("div",{class:"q",id:"q-"+it.id});
         const lab=el("label",{class:"ql",for:"f-"+it.id});lab.append(labelNodes(it));
@@ -332,12 +336,20 @@ function fillForm(a){
   if(!a)return;
   for(const it of ITEMS){
     const v=a[it.id];if(v==null)continue;
-    if(it.type==="text"||it.type==="area"){const f=document.getElementById("f-"+it.id);if(f)f.value=v}
+    if(it.type==="text"||it.type==="area"||it.type==="date"){const f=document.getElementById("f-"+it.id);if(f)f.value=v}
     else if(it.type==="check"){document.querySelectorAll(`input[name="${it.id}"]`).forEach(i=>i.checked=Array.isArray(v)&&v.includes(i.value))}
     else{document.querySelectorAll(`input[name="${it.id}"]`).forEach(i=>i.checked=String(v)===i.value)}
   }
 }
 const isAnswered=(it,a)=>{const v=a[it.id];return Array.isArray(v)?v.length>0:v!==null&&v!==""&&v!==undefined};
+// 結束日期不可早於開始日期；有問題回傳要標紅的題目 id
+const dateProblem=a=>a.dateStart&&a.dateEnd&&a.dateEnd<a.dateStart?"dateEnd":null;
+function checkDates(a,err){
+  const bad=dateProblem(a);if(!bad)return true;
+  document.getElementById("q-"+bad)?.classList.add("missing");
+  err.textContent="結束日期不能早於開始日期";document.getElementById("q-"+bad)?.scrollIntoView({behavior:"smooth",block:"center"});
+  return false;
+}
 let draftTimer=null;
 function updateProgress(){
   const a=readForm();const n=REQ.filter(it=>isAnswered(it,a)).length;
@@ -399,6 +411,7 @@ async function onSubmit(ev){
   const err=$("#form-err");
   if(miss.length){miss.forEach(it=>document.getElementById("q-"+it.id)?.classList.add("missing"));
     err.textContent=`還有 ${miss.length} 題必填未完成（已標紅）`;document.getElementById("q-"+miss[0].id)?.scrollIntoView({behavior:"smooth",block:"center"});return}
+  if(!checkDates(a,err))return;
   err.textContent="";$("#fallback").hidden=true;
   const payload=buildPayload(a);
   if(!SUBMIT_URL){fallbackBox(payload);return}
